@@ -22,11 +22,11 @@ CREATE TABLE IF NOT EXISTS user_state (
     daily_streak INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id)
 );
-CREATE TABLE IF NOT EXISTS milestones (
+CREATE TABLE IF NOT EXISTS tier_roles (
     guild_id INTEGER NOT NULL,
-    miles INTEGER NOT NULL,
+    tier_name TEXT NOT NULL,
     role_id INTEGER NOT NULL,
-    PRIMARY KEY (guild_id, miles)
+    PRIMARY KEY (guild_id, tier_name)
 );
 """
 
@@ -126,20 +126,20 @@ class Database:
         await self.conn.commit()
         return streak, False
 
-    # --- milestones ---------------------------------------------------
-    async def set_milestone(self, guild_id: int, miles: int, role_id: int) -> None:
+    # --- tier roles ---------------------------------------------------
+    async def set_tier_role(self, guild_id: int, tier_name: str, role_id: int) -> None:
         await self.conn.execute(
-            "INSERT OR REPLACE INTO milestones (guild_id, miles, role_id) VALUES (?,?,?)",
-            (guild_id, miles, role_id))
+            "INSERT OR REPLACE INTO tier_roles (guild_id, tier_name, role_id) VALUES (?,?,?)",
+            (guild_id, tier_name, role_id))
         await self.conn.commit()
 
-    async def remove_milestone(self, guild_id: int, miles: int) -> bool:
+    async def clear_tier_role(self, guild_id: int, tier_name: str) -> bool:
         cur = await self.conn.execute(
-            "DELETE FROM milestones WHERE guild_id=? AND miles=?", (guild_id, miles))
+            "DELETE FROM tier_roles WHERE guild_id=? AND tier_name=?", (guild_id, tier_name))
         await self.conn.commit()
         return cur.rowcount > 0
 
-    async def milestones(self, guild_id: int):
+    async def tier_roles(self, guild_id: int) -> dict[str, int]:
         cur = await self.conn.execute(
-            "SELECT miles, role_id FROM milestones WHERE guild_id=? ORDER BY miles", (guild_id,))
-        return await cur.fetchall()
+            "SELECT tier_name, role_id FROM tier_roles WHERE guild_id=?", (guild_id,))
+        return dict(await cur.fetchall())

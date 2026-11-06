@@ -37,23 +37,39 @@ class MilesBot(commands.Bot):
         await self.db.close()
         await super().close()
 
-    async def award(self, member: discord.Member, amount: int, reason: str) -> int:
-        """Add miles, then grant any milestone roles now reached. Returns new balance."""
-        balance = await self.db.add(member.guild.id, member.id, amount, reason)
-        if amount > 0:
-            await self._apply_milestones(member, balance)
-        return balance
+    async def award(self, member: discord.Member, amount: int, reason: str,
+                    boost: bool = False) -> tuple[int, int, str | None]:
+        """Add miles (tier-boosted if `boost`), sync tier roles.
 
-    async def _apply_milestones(self, member: discord.Member, balance: int) -> None:
-        for miles, role_id in await self.db.milestones(member.guild.id):
-            if balance < miles:
-                break
-            role = member.guild.get_role(role_id)
-            if role and role not in member.roles:
-                try:
-                    await member.add_roles(role, reason=f"Reached {miles} miles")
-                except discord.HTTPException:
-                    log.warning("Cannot grant role %s in guild %s", role_id, member.guild.id)
+        Returns (miles_added, new_balance, promoted_tier_name_or_None).
+        """
+        gid = member.guild.id
+        before = await self.db.balance(gid, member.id)
+        if boost and amount > 0:
+            amount = max(1, round(amount * config.TIERS[config.tier_index(before)][2]))
+        after = await self.db.add(gid, member.id, amount, reason)
+        old_i, new_i = config.tier_index(before), config.tier_index(after)
+        await self._sync_roles(member, new_i)
+        promoted = config.TIERS[new_i][0] if new_i > old_i else None
+        return amount, after, promoted
+
+    async def _sync_roles(self, member: discord.Member, tier_i: int) -> None:
+        """Give the role for the current tier, remove roles of the other tiers."""
+        mapping = await self.db.tier_roles(member.guild.id)
+        if not mapping:
+            return
+        keep = mapping.get(config.TIERS[tier_i][0])
+        try:
+            for name, role_id in mapping.items():
+                role = member.guild.get_role(role_id)
+                if not role:
+                    continue
+                if role_id == keep and role not in member.roles:
+                    await member.add_roles(role, reason="Miles tier")
+                elif role_id != keep and role in member.roles:
+                    await member.remove_roles(role, reason="Miles tier changed")
+        except discord.HTTPException:
+            log.warning("Cannot update tier roles in guild %s", member.guild.id)
 
 
 def _ts(ts: int) -> str:
@@ -71,7 +87,12 @@ class Miles(commands.Cog):
             return
         if await self.bot.db.try_message_award(
                 message.guild.id, message.author.id, config.MESSAGE_COOLDOWN_SECS):
-            await self.bot.award(message.author, config.MESSAGE_MILES, "message")
+            _, _, promoted = await self.bot.award(
+                message.author, config.MESSAGE_MILES, "message", boost=True)
+            if promoted:
+                await message.channel.send(
+                    f"🎉 {message.author.mention} reached **{promoted}**!",
+                    allowed_mentions=discord.AllowedMentions(users=[message.author]))
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState,
@@ -90,7 +111,7 @@ class Miles(commands.Cog):
             started = self.bot.voice_joined.pop(key)
             mins = min(int((time.time() - started) // 60), config.VOICE_MAX_MINS)
             if mins > 0:
-                await self.bot.award(member, mins * config.VOICE_MILES_PER_MIN, "voice")
+                await self.bot.award(member, mins * config.VOICE_MILES_PER_MIN, "voice", boost=True)
 
     @app_commands.command(description="Claim your daily miles. Consecutive days build a streak bonus.")
     @app_commands.guild_only()
@@ -103,9 +124,12 @@ class Miles(commands.Cog):
                 ephemeral=True)
             return
         amount = config.DAILY_BASE + config.DAILY_STREAK_BONUS * (min(streak, config.DAILY_STREAK_CAP) - 1)
-        balance = await self.bot.award(interaction.user, amount, f"daily (streak {streak})")
-        await interaction.response.send_message(
-            f"✈️ +**{amount}** miles! Streak: **{streak}** 🔥 — balance: **{balance:,}**")
+        _, balance, promoted = await self.bot.award(
+            interaction.user, amount, f"daily (streak {streak})")
+        msg = f"✈️ +**{amount}** miles! Streak: **{streak}** 🔥 — balance: **{balance:,}**"
+        if promoted:
+            msg += f"\n🎉 You reached **{promoted}**!"
+        await interaction.response.send_message(msg)
 
     # --- viewing ------------------------------------------------------
     @app_commands.command(description="Show a miles balance and recent activity.")
@@ -121,9 +145,12 @@ class Miles(commands.Cog):
         embed.add_field(name="Rank", value=f"#{rank}" if rank else "—")
         embed.add_field(name="Recent", inline=False, value="\n".join(
             f"{a:+,} · {r} · {_ts(t)}" for a, r, t in hist) or "Nothing yet")
-        nxt = next(((m, r) for m, r in await self.bot.db.milestones(gid) if m > balance), None)
-        if nxt:
-            embed.set_footer(text=f"Next milestone: {nxt[0]:,} miles ({nxt[0] - balance:,} to go)")
+        i = config.tier_index(balance)
+        name, _, mult = config.TIERS[i]
+        embed.insert_field_at(0, name="Tier", value=f"{name} (x{mult:g})")
+        if i + 1 < len(config.TIERS):
+            n_name, need, _ = config.TIERS[i + 1]
+            embed.set_footer(text=f"Next tier: {n_name} at {need:,} miles ({need - balance:,} to go)")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(description="Top members by miles.")
@@ -144,12 +171,16 @@ class Miles(commands.Cog):
                               color=discord.Color.gold())
         await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
-    @app_commands.command(description="List milestone roles.")
+    @app_commands.command(description="Show all tiers and their perks.")
     @app_commands.guild_only()
-    async def milestones(self, interaction: discord.Interaction) -> None:
-        rows = await self.bot.db.milestones(interaction.guild_id)
-        text = "\n".join(f"**{m:,}** miles → <@&{r}>" for m, r in rows) or "No milestones set."
-        await interaction.response.send_message(text, allowed_mentions=discord.AllowedMentions.none())
+    async def tiers(self, interaction: discord.Interaction) -> None:
+        roles = await self.bot.db.tier_roles(interaction.guild_id)
+        lines = []
+        for name, need, mult in config.TIERS:
+            role = f" → <@&{roles[name]}>" if name in roles else ""
+            lines.append(f"**{name}** — {need:,}+ miles · x{mult:g} chat/voice earnings{role}")
+        await interaction.response.send_message(
+            "\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
     # --- admin --------------------------------------------------------
     admin = app_commands.Group(name="miles-admin", description="Manage miles",
@@ -162,29 +193,33 @@ class Miles(commands.Cog):
         if user.bot:
             await interaction.response.send_message("Bots can't hold miles.", ephemeral=True)
             return
-        balance = await self.bot.award(user, amount, f"admin: {reason}")
+        _, balance, _ = await self.bot.award(user, amount, f"admin: {reason}")
         await interaction.response.send_message(
             f"{user.mention} {amount:+,} miles → **{balance:,}**", ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
-    @admin.command(name="milestone-set", description="Grant a role when members reach a miles total.")
-    async def milestone_set(self, interaction: discord.Interaction,
-                            miles: app_commands.Range[int, 1, 10_000_000], role: discord.Role) -> None:
-        me = interaction.guild.me
-        if role >= me.top_role or role.is_default() or role.managed:
+    _tier_choices = [app_commands.Choice(name=t[0], value=t[0]) for t in config.TIERS]
+
+    @admin.command(name="tier-role", description="Assign a Discord role to a tier.")
+    @app_commands.choices(tier=_tier_choices)
+    async def tier_role(self, interaction: discord.Interaction,
+                        tier: app_commands.Choice[str], role: discord.Role) -> None:
+        if role >= interaction.guild.me.top_role or role.is_default() or role.managed:
             await interaction.response.send_message(
                 "I can't assign that role (it must be below my highest role and not managed).",
                 ephemeral=True)
             return
-        await self.bot.db.set_milestone(interaction.guild_id, miles, role.id)
+        await self.bot.db.set_tier_role(interaction.guild_id, tier.value, role.id)
         await interaction.response.send_message(
-            f"Members reaching **{miles:,}** miles will get {role.mention}.", ephemeral=True,
+            f"**{tier.value}** members will get {role.mention}.", ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
-    @admin.command(name="milestone-remove", description="Remove a milestone.")
-    async def milestone_remove(self, interaction: discord.Interaction, miles: int) -> None:
-        ok = await self.bot.db.remove_milestone(interaction.guild_id, miles)
-        await interaction.response.send_message("Removed." if ok else "No such milestone.", ephemeral=True)
+    @admin.command(name="tier-role-clear", description="Stop using a role for a tier.")
+    @app_commands.choices(tier=_tier_choices)
+    async def tier_role_clear(self, interaction: discord.Interaction,
+                              tier: app_commands.Choice[str]) -> None:
+        ok = await self.bot.db.clear_tier_role(interaction.guild_id, tier.value)
+        await interaction.response.send_message("Cleared." if ok else "No role set.", ephemeral=True)
 
     @admin.command(description="Export the full ledger as CSV.")
     async def export(self, interaction: discord.Interaction) -> None:

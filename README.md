@@ -18,8 +18,19 @@ A Discord bot that tracks community "miles" — earned by chatting, hanging out 
 - Voice: 1 mile per minute (AFK channel excluded, 180 min cap per session), paid when you leave
 - `/daily`: 25 miles + 5 per streak day (streak bonus capped at 10 days), resets at 00:00 UTC
 
+## Tiers
+| Tier | Miles | Chat/voice multiplier |
+|---|---|---|
+| Dockhand | 0 | x1.0 |
+| Shoreline | 250 | x1.1 |
+| Tidecaller | 1000 | x1.25 |
+| Harbor Master | 2500 | x1.5 |
+| Lighthouse | 5000 | x2.0 |
+
+Edit `TIERS` in `config.py` to rename or rebalance. Use `/miles-admin tier-role` to link a Discord role to a tier; members get the role of their current tier (old tier roles are removed). Promotions are announced in chat. `/daily` is not multiplied.
+
 ## Commands
-`/miles [user]` · `/leaderboard [week|month|all]` · `/daily` · `/milestones`
-Admin (Manage Server): `/miles-admin adjust` · `milestone-set` · `milestone-remove` · `export`
+`/miles [user]` · `/leaderboard [week|month|all]` · `/daily` · `/tiers`
+Admin (Manage Server): `/miles-admin adjust` · `tier-role` · `tier-role-clear` · `export`
 
 Data lives in a SQLite ledger (`miles.db`); balances are the sum of ledger entries, so every change is auditable.

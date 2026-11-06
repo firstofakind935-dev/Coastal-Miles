@@ -45,9 +45,10 @@ async def test_daily_streak(db):
     assert await db.claim_daily(1, 10, 103) == (1, False)  # missed a day
 
 
-async def test_milestones(db):
-    await db.set_milestone(1, 500, 7)
-    await db.set_milestone(1, 100, 6)
-    assert await db.milestones(1) == [(100, 6), (500, 7)]
-    assert await db.remove_milestone(1, 100)
-    assert not await db.remove_milestone(1, 100)
+async def test_tier_roles(db):
+    await db.set_tier_role(1, "Shoreline", 6)
+    await db.set_tier_role(1, "Tidecaller", 7)
+    await db.set_tier_role(1, "Shoreline", 8)
+    assert await db.tier_roles(1) == {"Shoreline": 8, "Tidecaller": 7}
+    assert await db.clear_tier_role(1, "Shoreline")
+    assert not await db.clear_tier_role(1, "Shoreline")
