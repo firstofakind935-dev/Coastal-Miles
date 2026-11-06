@@ -11,9 +11,15 @@ LEADERBOARD_SIZE = 10
 
 PERIODS = {"week": 7 * 86400, "month": 30 * 86400, "all": None}
 
-# Tiers are empty for now. Add entries as (name, miles needed, earning multiplier
-# for chat/voice miles), lowest first, e.g. ("Example", 0, 1.0).
-TIERS: list[tuple[str, int, float]] = []
+# (name, miles needed, earning multiplier for chat/voice miles), lowest first.
+# NOTE: thresholds are placeholders and multipliers are all 1.0 (no bonus) until set.
+TIERS: list[tuple[str, int, float]] = [
+    ("Basic", 0, 1.0),
+    ("Preferred", 500, 1.0),
+    ("Premium Preferred", 2_000, 1.0),
+    ("Coast to Coast", 7_500, 1.0),
+    ("Coastal Reserved", 50_000, 1.0),
+]
 
 
 def tier_index(balance: int) -> int:

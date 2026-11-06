@@ -19,7 +19,15 @@ A Discord bot that tracks community "miles" — earned by chatting, hanging out 
 - `/daily`: 25 miles + 5 per streak day (streak bonus capped at 10 days), resets at 00:00 UTC
 
 ## Tiers
-Tiers are set up in the code but currently empty. Add `(name, miles needed, multiplier)` entries to `TIERS` in `coastal_miles/config.py`. Once added, `/miles` shows a member's tier, promotions are announced, chat/voice miles get the tier multiplier (`/daily` does not), and `/miles-admin tier-role` links a Discord role to a tier.
+| Tier | Miles needed (placeholder) |
+|---|---|
+| Basic | 0 (everyone) |
+| Preferred | 500 |
+| Premium Preferred | 2,000 |
+| Coast to Coast | 7,500 |
+| Coastal Reserved | 50,000 |
+
+Edit `TIERS` in `coastal_miles/config.py` to change thresholds or add a chat/voice earning multiplier (all 1.0 for now). `/miles` shows a member's tier, promotions are announced, and `/miles-admin tier-role` links a Discord role to a tier. `/daily` is never multiplied.
 
 ## Commands
 `/miles [user]` · `/leaderboard [week|month|all]` · `/daily` · `/tiers`
