@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import random
 import time
 
 import discord
@@ -48,7 +49,7 @@ class MilesBot(commands.Bot):
         if boost and amount > 0:
             ti = config.tier_index(before)
             if ti >= 0:
-                amount = max(1, round(amount * config.TIERS[ti][2]))
+                amount = apply_multiplier(amount, config.TIERS[ti][2])
         after = await self.db.add(gid, member.id, amount, reason)
         old_i, new_i = config.tier_index(before), config.tier_index(after)
         await self._sync_roles(member, new_i)
@@ -72,6 +73,16 @@ class MilesBot(commands.Bot):
                     await member.remove_roles(role, reason="Miles tier changed")
         except discord.HTTPException:
             log.warning("Cannot update tier roles in guild %s", member.guild.id)
+
+
+def apply_multiplier(amount: int, mult: float, rand=random.random) -> int:
+    """Scale miles by a multiplier. Fractions are rounded up with matching probability,
+    so e.g. 1 mile at x1.25 pays 1.25 on average rather than always 1."""
+    scaled = amount * mult
+    whole = int(scaled)
+    if rand() < scaled - whole:
+        whole += 1
+    return whole
 
 
 def _ts(ts: int) -> str:
@@ -152,7 +163,7 @@ class Miles(commands.Cog):
             if i >= 0:
                 name, _, mult = config.TIERS[i]
                 embed.insert_field_at(0, name="Tier", value=f"{name} (x{mult:g})")
-            if i + 1 < len(config.TIERS):
+            if i + 1 < len(config.TIERS) and config.TIERS[i + 1][0] not in config.SECRET_TIERS:
                 n_name, need, _ = config.TIERS[i + 1]
                 embed.set_footer(text=f"Next tier: {n_name} at {need:,} miles ({need - balance:,} to go)")
         await interaction.response.send_message(embed=embed)
@@ -182,8 +193,11 @@ class Miles(commands.Cog):
             await interaction.response.send_message("No tiers have been set up yet.")
             return
         roles = await self.bot.db.tier_roles(interaction.guild_id)
+        balance = await self.bot.db.balance(interaction.guild_id, interaction.user.id)
         lines = []
         for name, need, mult in config.TIERS:
+            if name in config.SECRET_TIERS and balance < need:
+                continue
             role = f" → <@&{roles[name]}>" if name in roles else ""
             lines.append(f"**{name}** — {need:,}+ miles · x{mult:g} chat/voice earnings{role}")
         await interaction.response.send_message(
