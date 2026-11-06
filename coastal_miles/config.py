@@ -11,18 +11,14 @@ LEADERBOARD_SIZE = 10
 
 PERIODS = {"week": 7 * 86400, "month": 30 * 86400, "all": None}
 
-# (name, miles needed, earning multiplier for chat/voice miles)
-TIERS = [
-    ("Dockhand", 0, 1.0),
-    ("Shoreline", 250, 1.1),
-    ("Tidecaller", 1000, 1.25),
-    ("Harbor Master", 2500, 1.5),
-    ("Lighthouse", 5000, 2.0),
-]
+# Tiers are empty for now. Add entries as (name, miles needed, earning multiplier
+# for chat/voice miles), lowest first, e.g. ("Example", 0, 1.0).
+TIERS: list[tuple[str, int, float]] = []
 
 
 def tier_index(balance: int) -> int:
-    idx = 0
+    """Index of the highest tier reached, or -1 if there are no tiers / none reached."""
+    idx = -1
     for i, (_, need, _) in enumerate(TIERS):
         if balance >= need:
             idx = i

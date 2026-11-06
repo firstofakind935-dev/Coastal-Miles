@@ -46,11 +46,13 @@ class MilesBot(commands.Bot):
         gid = member.guild.id
         before = await self.db.balance(gid, member.id)
         if boost and amount > 0:
-            amount = max(1, round(amount * config.TIERS[config.tier_index(before)][2]))
+            ti = config.tier_index(before)
+            if ti >= 0:
+                amount = max(1, round(amount * config.TIERS[ti][2]))
         after = await self.db.add(gid, member.id, amount, reason)
         old_i, new_i = config.tier_index(before), config.tier_index(after)
         await self._sync_roles(member, new_i)
-        promoted = config.TIERS[new_i][0] if new_i > old_i else None
+        promoted = config.TIERS[new_i][0] if new_i > old_i and new_i >= 0 else None
         return amount, after, promoted
 
     async def _sync_roles(self, member: discord.Member, tier_i: int) -> None:
@@ -58,7 +60,7 @@ class MilesBot(commands.Bot):
         mapping = await self.db.tier_roles(member.guild.id)
         if not mapping:
             return
-        keep = mapping.get(config.TIERS[tier_i][0])
+        keep = mapping.get(config.TIERS[tier_i][0]) if tier_i >= 0 else None
         try:
             for name, role_id in mapping.items():
                 role = member.guild.get_role(role_id)
@@ -145,12 +147,14 @@ class Miles(commands.Cog):
         embed.add_field(name="Rank", value=f"#{rank}" if rank else "—")
         embed.add_field(name="Recent", inline=False, value="\n".join(
             f"{a:+,} · {r} · {_ts(t)}" for a, r, t in hist) or "Nothing yet")
-        i = config.tier_index(balance)
-        name, _, mult = config.TIERS[i]
-        embed.insert_field_at(0, name="Tier", value=f"{name} (x{mult:g})")
-        if i + 1 < len(config.TIERS):
-            n_name, need, _ = config.TIERS[i + 1]
-            embed.set_footer(text=f"Next tier: {n_name} at {need:,} miles ({need - balance:,} to go)")
+        if config.TIERS:
+            i = config.tier_index(balance)
+            if i >= 0:
+                name, _, mult = config.TIERS[i]
+                embed.insert_field_at(0, name="Tier", value=f"{name} (x{mult:g})")
+            if i + 1 < len(config.TIERS):
+                n_name, need, _ = config.TIERS[i + 1]
+                embed.set_footer(text=f"Next tier: {n_name} at {need:,} miles ({need - balance:,} to go)")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(description="Top members by miles.")
@@ -174,6 +178,9 @@ class Miles(commands.Cog):
     @app_commands.command(description="Show all tiers and their perks.")
     @app_commands.guild_only()
     async def tiers(self, interaction: discord.Interaction) -> None:
+        if not config.TIERS:
+            await interaction.response.send_message("No tiers have been set up yet.")
+            return
         roles = await self.bot.db.tier_roles(interaction.guild_id)
         lines = []
         for name, need, mult in config.TIERS:
@@ -198,27 +205,28 @@ class Miles(commands.Cog):
             f"{user.mention} {amount:+,} miles → **{balance:,}**", ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
-    _tier_choices = [app_commands.Choice(name=t[0], value=t[0]) for t in config.TIERS]
-
     @admin.command(name="tier-role", description="Assign a Discord role to a tier.")
-    @app_commands.choices(tier=_tier_choices)
     async def tier_role(self, interaction: discord.Interaction,
-                        tier: app_commands.Choice[str], role: discord.Role) -> None:
+                        tier: str, role: discord.Role) -> None:
+        if tier not in {t[0] for t in config.TIERS}:
+            await interaction.response.send_message(
+                "Unknown tier. Available: " + (", ".join(t[0] for t in config.TIERS) or "none set up yet"),
+                ephemeral=True)
+            return
         if role >= interaction.guild.me.top_role or role.is_default() or role.managed:
             await interaction.response.send_message(
                 "I can't assign that role (it must be below my highest role and not managed).",
                 ephemeral=True)
             return
-        await self.bot.db.set_tier_role(interaction.guild_id, tier.value, role.id)
+        await self.bot.db.set_tier_role(interaction.guild_id, tier, role.id)
         await interaction.response.send_message(
-            f"**{tier.value}** members will get {role.mention}.", ephemeral=True,
+            f"**{tier}** members will get {role.mention}.", ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
     @admin.command(name="tier-role-clear", description="Stop using a role for a tier.")
-    @app_commands.choices(tier=_tier_choices)
     async def tier_role_clear(self, interaction: discord.Interaction,
-                              tier: app_commands.Choice[str]) -> None:
-        ok = await self.bot.db.clear_tier_role(interaction.guild_id, tier.value)
+                              tier: str) -> None:
+        ok = await self.bot.db.clear_tier_role(interaction.guild_id, tier)
         await interaction.response.send_message("Cleared." if ok else "No role set.", ephemeral=True)
 
     @admin.command(description="Export the full ledger as CSV.")
