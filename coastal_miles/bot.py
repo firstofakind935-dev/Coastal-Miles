@@ -47,9 +47,7 @@ class MilesBot(commands.Bot):
         gid = member.guild.id
         before = await self.db.balance(gid, member.id)
         if boost and amount > 0:
-            ti = config.tier_index(before)
-            if ti >= 0:
-                amount = apply_multiplier(amount, config.TIERS[ti][2])
+            amount = apply_multiplier(amount, config.multiplier_for(before))
         after = await self.db.add(gid, member.id, amount, reason)
         old_i, new_i = config.tier_index(before), config.tier_index(after)
         await self._sync_roles(member, new_i)
@@ -163,7 +161,7 @@ class Miles(commands.Cog):
             if i >= 0:
                 name, _, mult = config.TIERS[i]
                 embed.insert_field_at(0, name="Tier", value=f"{name} (x{mult:g})")
-            if i + 1 < len(config.TIERS) and config.TIERS[i + 1][0] not in config.SECRET_TIERS:
+            if i + 1 < len(config.TIERS):
                 n_name, need, _ = config.TIERS[i + 1]
                 embed.set_footer(text=f"Next tier: {n_name} at {need:,} miles ({need - balance:,} to go)")
         await interaction.response.send_message(embed=embed)
@@ -193,11 +191,8 @@ class Miles(commands.Cog):
             await interaction.response.send_message("No tiers have been set up yet.")
             return
         roles = await self.bot.db.tier_roles(interaction.guild_id)
-        balance = await self.bot.db.balance(interaction.guild_id, interaction.user.id)
         lines = []
         for name, need, mult in config.TIERS:
-            if name in config.SECRET_TIERS and balance < need:
-                continue
             role = f" → <@&{roles[name]}>" if name in roles else ""
             lines.append(f"**{name}** — {need:,}+ miles · x{mult:g} chat/voice earnings{role}")
         await interaction.response.send_message(

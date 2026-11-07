@@ -26,9 +26,8 @@ A Discord bot that tracks community "miles" — earned by chatting, hanging out 
 | Premium Preferred | 2,000 | x1.5 |
 | Coast to Coast | 7,500 | x1.75 |
 | Coastal Reserved | 50,000 | x2.0 |
-| *Secret* (hidden until unlocked) | 100,000 | x10 |
 
-Edit `TIERS` / `SECRET_TIERS` in `coastal_miles/config.py`. Multipliers apply to chat and voice miles only (not `/daily` or admin adjustments); fractional results are rounded fairly at random so x1.25 averages 1.25. `/miles` shows a member's tier, promotions are announced, and `/miles-admin tier-role` links a Discord role to a tier.
+At 100,000 miles chat/voice earnings silently jump to x10 (`SECRET_BOOST_*` in config). It is not a tier and is never announced or listed. Edit `TIERS` in `coastal_miles/config.py`. Multipliers apply to chat and voice miles only (not `/daily` or admin adjustments); fractional results are rounded fairly at random so x1.25 averages 1.25. `/miles` shows a member's tier, promotions are announced, and `/miles-admin tier-role` links a Discord role to a tier.
 
 ## Commands
 `/miles [user]` · `/leaderboard [week|month|all]` · `/daily` · `/tiers`

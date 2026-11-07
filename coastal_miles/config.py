@@ -19,11 +19,12 @@ TIERS: list[tuple[str, int, float]] = [
     ("Premium Preferred", 2_000, 1.5),
     ("Coast to Coast", 7_500, 1.75),
     ("Coastal Reserved", 50_000, 2.0),
-    ("Secret Tier", 100_000, 10.0),  # placeholder name
 ]
 
-# Tiers hidden from /tiers and "next tier" hints until a member reaches them.
-SECRET_TIERS = {"Secret Tier"}
+# Hidden boost: at this many miles, chat/voice earnings switch to this multiplier.
+# It is not a tier: never named, announced or listed anywhere, it just happens.
+SECRET_BOOST_MILES = 100_000
+SECRET_BOOST_MULT = 10.0
 
 
 def tier_index(balance: int) -> int:
@@ -33,3 +34,11 @@ def tier_index(balance: int) -> int:
         if balance >= need:
             idx = i
     return idx
+
+
+def multiplier_for(balance: int) -> float:
+    """Chat/voice earning multiplier for a given balance."""
+    if balance >= SECRET_BOOST_MILES:
+        return SECRET_BOOST_MULT
+    i = tier_index(balance)
+    return TIERS[i][2] if i >= 0 else 1.0

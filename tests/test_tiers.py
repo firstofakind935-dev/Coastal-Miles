@@ -4,10 +4,9 @@ from coastal_miles.bot import apply_multiplier
 
 
 def test_default_tiers():
-    assert [t[0] for t in config.TIERS][:5] == [
+    assert [t[0] for t in config.TIERS]== [
         "Basic", "Preferred", "Premium Preferred", "Coast to Coast", "Coastal Reserved"]
-    assert [t[2] for t in config.TIERS] == [1.0, 1.25, 1.5, 1.75, 2.0, 10.0]
-    assert config.SECRET_TIERS <= {t[0] for t in config.TIERS}
+    assert [t[2] for t in config.TIERS] == [1.0, 1.25, 1.5, 1.75, 2.0]
     assert config.TIERS[0][1] == 0  # everyone starts in Basic
     assert [t[1] for t in config.TIERS] == sorted(t[1] for t in config.TIERS)
     assert config.tier_index(0) == 0
@@ -37,3 +36,16 @@ def test_multiplier_average():
     rng = random.Random(1)
     total = sum(apply_multiplier(1, 1.25, rng.random) for _ in range(20000))
     assert abs(total / 20000 - 1.25) < 0.02
+
+
+def test_multiplier_for():
+    assert config.multiplier_for(0) == 1.0
+    assert config.multiplier_for(500) == 1.25
+    assert config.multiplier_for(50_000) == 2.0
+    assert config.multiplier_for(config.SECRET_BOOST_MILES - 1) == 2.0
+    assert config.multiplier_for(config.SECRET_BOOST_MILES) == 10.0
+
+
+def test_secret_boost_is_not_a_tier():
+    assert all(config.SECRET_BOOST_MULT != t[2] for t in config.TIERS)
+    assert all(t[1] < config.SECRET_BOOST_MILES for t in config.TIERS)
