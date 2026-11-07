@@ -32,17 +32,23 @@ async def test_guilds_isolated(db):
     assert await db.balance(2, 10) == 0
 
 
-async def test_message_cooldown(db):
-    assert await db.try_message_award(1, 10, 60, now=1000)
-    assert not await db.try_message_award(1, 10, 60, now=1030)
-    assert await db.try_message_award(1, 10, 60, now=1061)
+async def test_cooldowns_are_per_kind(db):
+    assert await db.try_claim(1, 10, "message", 10, now=1000)
+    assert not await db.try_claim(1, 10, "message", 10, now=1005)
+    assert await db.try_claim(1, 10, "image", 5, now=1005)  # separate cooldown
+    assert await db.try_claim(1, 10, "message", 10, now=1011)
+    assert await db.try_claim(1, 11, "message", 10, now=1005)  # other user unaffected
 
 
-async def test_daily_streak(db):
-    assert await db.claim_daily(1, 10, 100) == (1, False)
-    assert await db.claim_daily(1, 10, 100) == (1, True)
-    assert await db.claim_daily(1, 10, 101) == (2, False)
-    assert await db.claim_daily(1, 10, 103) == (1, False)  # missed a day
+async def test_earn_channels(db):
+    assert await db.channels(1) == set()
+    await db.add_channel(1, 5)
+    await db.add_channel(1, 5)
+    await db.add_channel(1, 6)
+    assert await db.channels(1) == {5, 6}
+    assert await db.channels(2) == set()
+    assert await db.remove_channel(1, 5)
+    assert not await db.remove_channel(1, 5)
 
 
 async def test_tier_roles(db):

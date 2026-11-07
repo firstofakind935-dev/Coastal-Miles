@@ -14,13 +14,17 @@ CREATE TABLE IF NOT EXISTS ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_user ON ledger (guild_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_time ON ledger (guild_id, created_at);
-CREATE TABLE IF NOT EXISTS user_state (
+CREATE TABLE IF NOT EXISTS cooldowns (
     guild_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
-    last_message_at INTEGER NOT NULL DEFAULT 0,
-    last_daily_day INTEGER NOT NULL DEFAULT 0,
-    daily_streak INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (guild_id, user_id)
+    kind TEXT NOT NULL,
+    last_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS earn_channels (
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, channel_id)
 );
 CREATE TABLE IF NOT EXISTS tier_roles (
     guild_id INTEGER NOT NULL,
@@ -48,7 +52,7 @@ class Database:
     # --- ledger -------------------------------------------------------
     async def add(self, guild_id: int, user_id: int, amount: int, reason: str,
                   now: int | None = None) -> int:
-        """Record a ledger entry and return the user's new balance."""
+        """Record a ledger entry (amount in units) and return the new balance in units."""
         now = int(now if now is not None else time.time())
         await self.conn.execute(
             "INSERT INTO ledger (guild_id, user_id, amount, reason, created_at) VALUES (?,?,?,?,?)",
@@ -94,37 +98,37 @@ class Database:
             (guild_id,))
         return await cur.fetchall()
 
-    # --- activity state ----------------------------------------------
-    async def try_message_award(self, guild_id: int, user_id: int, cooldown: int,
-                                now: int | None = None) -> bool:
-        """Atomically claim the message cooldown. True if the user may earn now."""
+    # --- anti-spam cooldowns -----------------------------------------
+    async def try_claim(self, guild_id: int, user_id: int, kind: str, cooldown: int,
+                        now: int | None = None) -> bool:
+        """Atomically claim a cooldown slot. True if the user may earn for `kind` now."""
         now = int(now if now is not None else time.time())
         await self.conn.execute(
-            "INSERT OR IGNORE INTO user_state (guild_id, user_id) VALUES (?,?)",
-            (guild_id, user_id))
+            "INSERT OR IGNORE INTO cooldowns (guild_id, user_id, kind) VALUES (?,?,?)",
+            (guild_id, user_id, kind))
         cur = await self.conn.execute(
-            "UPDATE user_state SET last_message_at=? WHERE guild_id=? AND user_id=? "
-            "AND last_message_at<=?", (now, guild_id, user_id, now - cooldown))
+            "UPDATE cooldowns SET last_at=? WHERE guild_id=? AND user_id=? AND kind=? "
+            "AND last_at<=?", (now, guild_id, user_id, kind, now - cooldown))
         await self.conn.commit()
         return cur.rowcount == 1
 
-    async def claim_daily(self, guild_id: int, user_id: int, today: int):
-        """Return (new_streak, already_claimed). `today` is days since epoch."""
+    # --- earning channels --------------------------------------------
+    async def add_channel(self, guild_id: int, channel_id: int) -> None:
         await self.conn.execute(
-            "INSERT OR IGNORE INTO user_state (guild_id, user_id) VALUES (?,?)",
-            (guild_id, user_id))
-        cur = await self.conn.execute(
-            "SELECT last_daily_day, daily_streak FROM user_state WHERE guild_id=? AND user_id=?",
-            (guild_id, user_id))
-        last, streak = await cur.fetchone()
-        if last == today:
-            return streak, True
-        streak = streak + 1 if last == today - 1 else 1
-        await self.conn.execute(
-            "UPDATE user_state SET last_daily_day=?, daily_streak=? WHERE guild_id=? AND user_id=?",
-            (today, streak, guild_id, user_id))
+            "INSERT OR IGNORE INTO earn_channels (guild_id, channel_id) VALUES (?,?)",
+            (guild_id, channel_id))
         await self.conn.commit()
-        return streak, False
+
+    async def remove_channel(self, guild_id: int, channel_id: int) -> bool:
+        cur = await self.conn.execute(
+            "DELETE FROM earn_channels WHERE guild_id=? AND channel_id=?", (guild_id, channel_id))
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def channels(self, guild_id: int) -> set[int]:
+        cur = await self.conn.execute(
+            "SELECT channel_id FROM earn_channels WHERE guild_id=?", (guild_id,))
+        return {r[0] for r in await cur.fetchall()}
 
     # --- tier roles ---------------------------------------------------
     async def set_tier_role(self, guild_id: int, tier_name: str, role_id: int) -> None:

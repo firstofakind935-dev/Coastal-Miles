@@ -1,17 +1,36 @@
-"""Tunable earning rules. Edit these to rebalance the economy."""
+"""Tunable rules. Edit these to rebalance the economy."""
 
-MESSAGE_MILES = 1            # miles per qualifying message
-MESSAGE_COOLDOWN_SECS = 60   # one qualifying message per user per this window
-VOICE_MILES_PER_MIN = 1      # miles per full minute in a voice channel
-VOICE_MAX_MINS = 180         # cap per voice session so idle users can't farm
-DAILY_BASE = 25
-DAILY_STREAK_BONUS = 5       # extra per consecutive day...
-DAILY_STREAK_CAP = 10        # ...up to this many days
+# Miles are stored as integer "units" (1 mile = 64 units) so fractions like 1/16 are exact.
+UNITS_PER_MILE = 64
+
+
+def to_units(miles: float) -> int:
+    return round(miles * UNITS_PER_MILE)
+
+
+def to_miles(units: int) -> float:
+    return units / UNITS_PER_MILE
+
+
+def fmt_miles(units: int, signed: bool = False) -> str:
+    return f"{to_miles(units):{'+' if signed else ''},.2f}"
+
+
+# --- passive earning (chat) ------------------------------------------
+MESSAGE_MILES = 1 / 16       # per message
+IMAGE_MILES = 1 / 8          # per image attachment
+IMAGES_PER_MESSAGE_CAP = 4   # images counted per message
+MESSAGE_COOLDOWN_SECS = 10   # anti-spam: one paying message per user per window
+IMAGE_COOLDOWN_SECS = 5      # anti-spam: one paying image post per user per window
+
+# Voice earning is OFF (0). Set e.g. 1/16 to pay that many miles per minute in voice.
+VOICE_MILES_PER_MIN = 0
+VOICE_MAX_MINS = 180
+
 LEADERBOARD_SIZE = 10
-
 PERIODS = {"week": 7 * 86400, "month": 30 * 86400, "all": None}
 
-# (name, miles needed, earning multiplier for chat/voice miles), lowest first.
+# (name, miles needed, earning multiplier), lowest first.
 # NOTE: miles thresholds are placeholders until you set the real ones.
 TIERS: list[tuple[str, int, float]] = [
     ("Basic", 0, 1.0),
@@ -21,14 +40,14 @@ TIERS: list[tuple[str, int, float]] = [
     ("Coastal Reserved", 50_000, 2.0),
 ]
 
-# Hidden boost: at this many miles, chat/voice earnings switch to this multiplier.
+# Hidden boost: at this many miles, earnings switch to this multiplier.
 # It is not a tier: never named, announced or listed anywhere, it just happens.
 SECRET_BOOST_MILES = 100_000
 SECRET_BOOST_MULT = 10.0
 
 
-def tier_index(balance: int) -> int:
-    """Index of the highest tier reached, or -1 if there are no tiers / none reached."""
+def tier_index(balance: float) -> int:
+    """Index of the highest tier reached (balance in miles), or -1 if none."""
     idx = -1
     for i, (_, need, _) in enumerate(TIERS):
         if balance >= need:
@@ -36,8 +55,8 @@ def tier_index(balance: int) -> int:
     return idx
 
 
-def multiplier_for(balance: int) -> float:
-    """Chat/voice earning multiplier for a given balance."""
+def multiplier_for(balance: float) -> float:
+    """Earning multiplier for a balance in miles."""
     if balance >= SECRET_BOOST_MILES:
         return SECRET_BOOST_MULT
     i = tier_index(balance)
