@@ -1,6 +1,6 @@
 # Coastal Miles
 
-A Discord bot that tracks community "miles" — earned by chatting, hanging out in voice, and daily check-ins.
+A Discord bot that tracks community "miles", earned passively by chatting and posting images.
 
 ## Setup
 1. Create a bot at https://discord.com/developers/applications, copy its token.
