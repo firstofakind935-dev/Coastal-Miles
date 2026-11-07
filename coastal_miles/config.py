@@ -27,6 +27,11 @@ IMAGE_COOLDOWN_SECS = 5      # anti-spam: one paying image post per user per win
 VOICE_MILES_PER_MIN = 0
 VOICE_MAX_MINS = 180
 
+# --- flights (staff-run /flight command) ------------------------------
+FLIGHT_MILES_PER_DISTANCE_MILE = 1.0   # miles awarded per mile flown
+FLIGHT_MAX_DISTANCE = 25_000           # sanity cap per flight
+FLIGHT_MAX_PLAYERS = 25                # players per /flight
+
 LEADERBOARD_SIZE = 10
 PERIODS = {"week": 7 * 86400, "month": 30 * 86400, "all": None}
 

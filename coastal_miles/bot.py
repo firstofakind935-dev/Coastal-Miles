@@ -4,6 +4,7 @@ import csv
 import io
 import logging
 import random
+import re
 import time
 
 import discord
@@ -36,6 +37,14 @@ def count_images(message: discord.Message) -> int:
         if ctype.startswith("image/") or a.filename.lower().endswith(IMAGE_EXTS):
             n += 1
     return min(n, config.IMAGES_PER_MESSAGE_CAP)
+
+
+def parse_mention_ids(text: str) -> list[int]:
+    """User IDs from <@id> / <@!id> mentions (or bare IDs), in order, de-duplicated."""
+    seen: dict[int, None] = {}
+    for m in re.finditer(r"<@!?(\d{15,25})>|\b(\d{15,25})\b", text):
+        seen.setdefault(int(m.group(1) or m.group(2)))
+    return list(seen)
 
 
 def _ts(ts: int) -> str:
@@ -217,6 +226,42 @@ class Miles(commands.Cog):
         await interaction.response.send_message(
             "\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
 
+    # --- flights ------------------------------------------------------
+    async def _can_award_flights(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.guild_permissions.manage_guild:
+            return True
+        allowed = await self.bot.db.flight_roles(interaction.guild_id)
+        return any(r.id in allowed for r in interaction.user.roles)
+
+    @app_commands.command(description="Award miles for a flight, based on its distance (flight staff only).")
+    @app_commands.describe(players="Mention the players who flew, e.g. @a @b",
+                           distance="Distance flown in miles",
+                           route="Optional note, e.g. LAX-JFK")
+    @app_commands.guild_only()
+    async def flight(self, interaction: discord.Interaction, players: str,
+                     distance: app_commands.Range[float, 1, config.FLIGHT_MAX_DISTANCE],
+                     route: app_commands.Range[str, 0, 60] = "") -> None:
+        if not await self._can_award_flights(interaction):
+            await interaction.response.send_message(
+                "Only flight staff can award flight miles.", ephemeral=True)
+            return
+        ids = parse_mention_ids(players)[:config.FLIGHT_MAX_PLAYERS]
+        members = [m for m in (interaction.guild.get_member(i) for i in ids) if m and not m.bot]
+        if not members:
+            await interaction.response.send_message(
+                "I couldn't find any players. Mention them, e.g. `@player1 @player2`.", ephemeral=True)
+            return
+        units = config.to_units(distance * config.FLIGHT_MILES_PER_DISTANCE_MILE)
+        reason = f"flight {route}".strip() + f" ({distance:g} mi)"
+        lines = []
+        for m in members:
+            added, balance, promoted = await self.bot.award(m, units, reason, boost=True)
+            line = f"{m.mention} +{fmt_miles(added)} → {fmt_miles(balance)}"
+            lines.append(line + (f" 🎉 **{promoted}**" if promoted else ""))
+        title = f"✈️ Flight{' ' + route if route else ''}: {distance:g} mi"
+        await interaction.response.send_message(
+            title + "\n" + "\n".join(lines), allowed_mentions=discord.AllowedMentions.none())
+
     # --- admin --------------------------------------------------------
     admin = app_commands.Group(name="miles-admin", description="Manage miles",
                                default_permissions=discord.Permissions(manage_guild=True),
@@ -253,6 +298,18 @@ class Miles(commands.Cog):
         text = ("Miles are earned in: " + ", ".join(f"<#{i}>" for i in sorted(ids))) if ids else \
             "No channels set, so miles are earned in **every** channel. Use `earn-channel-add` to limit it."
         await interaction.response.send_message(text, ephemeral=True)
+
+    @admin.command(name="flight-role-add", description="Let a role run /flight.")
+    async def flight_role_add(self, interaction: discord.Interaction, role: discord.Role) -> None:
+        await self.bot.db.add_flight_role(interaction.guild_id, role.id)
+        await interaction.response.send_message(
+            f"{role.mention} can now run `/flight`.", ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @admin.command(name="flight-role-remove", description="Stop a role from running /flight.")
+    async def flight_role_remove(self, interaction: discord.Interaction, role: discord.Role) -> None:
+        ok = await self.bot.db.remove_flight_role(interaction.guild_id, role.id)
+        await interaction.response.send_message("Removed." if ok else "That role wasn't set.", ephemeral=True)
 
     @admin.command(name="tier-role", description="Assign a Discord role to a tier.")
     async def tier_role(self, interaction: discord.Interaction, tier: str, role: discord.Role) -> None:

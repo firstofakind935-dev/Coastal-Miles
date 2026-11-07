@@ -70,3 +70,57 @@ async def test_promotion_announced(cog):
     await cog.on_message(m)
     m.channel.send.assert_awaited_once()
     assert "Preferred" in m.channel.send.await_args.args[0]
+
+
+# --- /flight ---------------------------------------------------------
+from coastal_miles.bot import parse_mention_ids
+
+
+def test_parse_mentions():
+    assert parse_mention_ids("<@111111111111111111> <@!222222222222222222> <@111111111111111111>") == [
+        111111111111111111, 222222222222222222]
+    assert parse_mention_ids("no one here") == []
+
+
+def flight_interaction(cog, *, manage=False, role_ids=(), member_ids=()):
+    members = {}
+    for i in member_ids:
+        m = MagicMock(spec=discord.Member)
+        m.bot, m.id, m.roles, m.mention = False, i, [], f"<@{i}>"
+        m.guild = NS(id=1, get_role=lambda _: None)
+        members[i] = m
+    user = NS(guild_permissions=NS(manage_guild=manage), roles=[NS(id=r) for r in role_ids])
+    return NS(user=user, guild_id=1, guild=NS(get_member=members.get),
+              response=NS(send_message=AsyncMock())), members
+
+
+A, B = 111111111111111111, 222222222222222222
+
+
+async def test_flight_denied_without_permission(cog):
+    it, _ = flight_interaction(cog, member_ids=[A])
+    await Miles.flight.callback(cog, it, f"<@{A}>", 500.0)
+    assert "Only flight staff" in it.response.send_message.await_args.args[0]
+    assert await cog.bot.db.balance(1, A) == 0
+
+
+async def test_flight_awards_by_distance_to_all_players(cog):
+    it, _ = flight_interaction(cog, manage=True, member_ids=[A, B])
+    await Miles.flight.callback(cog, it, f"<@{A}> <@{B}>", 250.5, "LAX-JFK")
+    assert await cog.bot.db.balance(1, A) == config.to_units(250.5)
+    assert await cog.bot.db.balance(1, B) == config.to_units(250.5)
+    assert "LAX-JFK" in it.response.send_message.await_args.args[0]
+
+
+async def test_flight_role_can_award_and_tier_boost_applies(cog):
+    await cog.bot.db.add_flight_role(1, 77)
+    await cog.bot.db.add(1, A, config.to_units(500), "seed")  # Preferred x1.25
+    it, _ = flight_interaction(cog, role_ids=[77], member_ids=[A])
+    await Miles.flight.callback(cog, it, f"<@{A}>", 400.0)
+    assert await cog.bot.db.balance(1, A) == config.to_units(500) + config.to_units(400) * 5 // 4
+
+
+async def test_flight_unknown_players(cog):
+    it, _ = flight_interaction(cog, manage=True)
+    await Miles.flight.callback(cog, it, "<@999999999999999999>", 100.0)
+    assert "couldn't find" in it.response.send_message.await_args.args[0]

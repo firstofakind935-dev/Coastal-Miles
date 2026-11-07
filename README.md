@@ -21,6 +21,9 @@ Members just chat; the bot does the rest. Tune everything in `coastal_miles/conf
 
 Earning is limited to the channels you choose with `/miles-admin earn-channel-add` (threads inside them count). If none are set, every channel earns. Miles are stored in 1/64ths so fractions stay exact.
 
+## Flights
+Flight staff run `/flight players:@a @b distance:850 route:LAX-JFK` to award each mentioned player miles equal to the distance flown (`FLIGHT_MILES_PER_DISTANCE_MILE` in config; up to 25 players per flight). Tier multipliers apply, like passive earning. Who can run it: anyone with Manage Server, plus any role added with `/miles-admin flight-role-add`.
+
 ## Tiers
 | Tier | Miles needed (placeholder) | Multiplier |
 |---|---|---|
@@ -34,6 +37,7 @@ At 100,000 miles earnings silently jump to x10 (`SECRET_BOOST_*` in config). It 
 
 ## Commands
 Viewing: `/miles [user]` · `/leaderboard [week|month|all]` · `/tiers`
+Flight staff: `/flight`
 Admin (Manage Server): `/miles-admin earn-channel-add|earn-channel-remove|earn-channels` · `adjust` · `tier-role` · `tier-role-clear` · `export`
 
 Data lives in a SQLite ledger (`miles.db`); balances are the sum of ledger entries, so every change is auditable.

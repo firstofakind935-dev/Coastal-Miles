@@ -58,3 +58,12 @@ async def test_tier_roles(db):
     assert await db.tier_roles(1) == {"Shoreline": 8, "Tidecaller": 7}
     assert await db.clear_tier_role(1, "Shoreline")
     assert not await db.clear_tier_role(1, "Shoreline")
+
+
+async def test_flight_roles(db):
+    await db.add_flight_role(1, 9)
+    await db.add_flight_role(1, 9)
+    assert await db.flight_roles(1) == {9}
+    assert await db.flight_roles(2) == set()
+    assert await db.remove_flight_role(1, 9)
+    assert not await db.remove_flight_role(1, 9)

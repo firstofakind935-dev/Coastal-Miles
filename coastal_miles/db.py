@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS cooldowns (
     last_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id, kind)
 );
+CREATE TABLE IF NOT EXISTS flight_roles (
+    guild_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, role_id)
+);
 CREATE TABLE IF NOT EXISTS earn_channels (
     guild_id INTEGER NOT NULL,
     channel_id INTEGER NOT NULL,
@@ -128,6 +133,22 @@ class Database:
     async def channels(self, guild_id: int) -> set[int]:
         cur = await self.conn.execute(
             "SELECT channel_id FROM earn_channels WHERE guild_id=?", (guild_id,))
+        return {r[0] for r in await cur.fetchall()}
+
+    # --- roles allowed to run /flight --------------------------------
+    async def add_flight_role(self, guild_id: int, role_id: int) -> None:
+        await self.conn.execute(
+            "INSERT OR IGNORE INTO flight_roles (guild_id, role_id) VALUES (?,?)", (guild_id, role_id))
+        await self.conn.commit()
+
+    async def remove_flight_role(self, guild_id: int, role_id: int) -> bool:
+        cur = await self.conn.execute(
+            "DELETE FROM flight_roles WHERE guild_id=? AND role_id=?", (guild_id, role_id))
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def flight_roles(self, guild_id: int) -> set[int]:
+        cur = await self.conn.execute("SELECT role_id FROM flight_roles WHERE guild_id=?", (guild_id,))
         return {r[0] for r in await cur.fetchall()}
 
     # --- tier roles ---------------------------------------------------
